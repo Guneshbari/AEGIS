@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from backend.workload.scenarios.base import BaseScenario
+from backend.workload.scenarios.cost_sensitive import CostSensitiveScenario
 from backend.workload.scenarios.popularity_shift import PopularityShiftScenario
 from backend.workload.scenarios.spike import SpikeScenario
 from backend.workload.scenarios.steady import SteadyScenario
 
 __all__ = [
     "BaseScenario",
+    "CostSensitiveScenario",
     "PopularityShiftScenario",
     "SpikeScenario",
     "SteadyScenario",
 ]
+

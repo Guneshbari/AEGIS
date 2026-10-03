@@ -16,6 +16,7 @@ nav:
   - Running the Project: running-the-project.md
   - Architecture: codebase_architecture.md
   - Adaptive Decision Engine: adaptive_decision_engine_specification.md
+  - Benchmark Comparison: benchmark-comparison.md
   - Cache Consistency: cache_consistency_specification.md
   - Data Store Testing: data-store-testing.md
   - Monitoring: monitoring.md

@@ -9,6 +9,9 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from backend.cost.cost_profile import CostProfile
+from backend.cost.profiles import DEFAULT_PROFILE
+from backend.cost.profiles import get_profile as get_cost_profile
 from backend.workload.scenario import ScenarioEvent
 from benchmark.models import BenchmarkMetrics, BenchmarkResult
 from benchmark.policies import BenchmarkPolicy, get_policy_adapter
@@ -67,10 +70,12 @@ class CacheSimulator:
         self._backend_requests: int = 0
         self._backend_requests_prevented: int = 0
         self._backend_latency_total_ms: float = 0.0
+        self._backend_retrieval_cost_total_ms: float = 0.0
         self._latencies: list[float] = []
         self._eviction_count: int = 0
         self._peak_cache_usage_bytes: int = 0
         self._oversized_requests: int = 0
+
 
     @property
     def capacity_bytes(self) -> int:
@@ -163,6 +168,7 @@ class CacheSimulator:
         self._cache_misses += 1
         self._backend_requests += 1
         self._backend_latency_total_ms += event.backend_latency_ms
+        self._backend_retrieval_cost_total_ms += event.retrieval_cost_ms
         latency = self._hit_latency_ms + event.backend_latency_ms
         self._latencies.append(latency)
 
@@ -214,8 +220,52 @@ class CacheSimulator:
 
         return latency
 
-    def get_metrics(self) -> BenchmarkMetrics:
-        """Compute and return the current BenchmarkMetrics."""
+    def get_metrics(
+        self,
+        duration_seconds: float | None = None,
+        cost_profile: CostProfile | str | None = None,
+    ) -> BenchmarkMetrics:
+        """Compute and return the current BenchmarkMetrics.
+
+        Args:
+            duration_seconds: Measurement duration in seconds for throughput and cost.
+            cost_profile: CostProfile instance or registered name from backend.cost.
+
+        Returns:
+            Validated BenchmarkMetrics model.
+        """
+        resolved_profile: CostProfile
+        if isinstance(cost_profile, CostProfile):
+            resolved_profile = cost_profile
+        elif isinstance(cost_profile, str):
+            resolved_profile = get_cost_profile(cost_profile)
+        else:
+            resolved_profile = DEFAULT_PROFILE
+
+        dur_s = (
+            duration_seconds
+            if (duration_seconds is not None and duration_seconds > 0)
+            else 60.0
+        )
+        hours = dur_s / 3600.0
+
+        miss_cost = (
+            float(self._backend_requests) * resolved_profile.backend_cost_per_request
+            + self._backend_retrieval_cost_total_ms * resolved_profile.backend_cost_per_ms
+        )
+        ram_cost = (
+            (float(self._peak_cache_usage_bytes) / 1_000_000_000.0)
+            * resolved_profile.cache_memory_cost_per_gb_hour
+            * hours
+        )
+        total_estimated_cost = round(miss_cost + ram_cost, 4)
+
+        throughput = (
+            round(self._total_requests / dur_s, 2)
+            if (duration_seconds is not None and duration_seconds > 0 and self._total_requests > 0)
+            else 0.0
+        )
+
         return compute_benchmark_metrics(
             total_requests=self._total_requests,
             cache_hits=self._cache_hits,
@@ -225,6 +275,8 @@ class CacheSimulator:
             eviction_count=self._eviction_count,
             cache_capacity_bytes=self._capacity_bytes,
             peak_cache_usage_bytes=self._peak_cache_usage_bytes,
+            estimated_cost=total_estimated_cost,
+            throughput_rps=throughput,
         )
 
     def get_result(
@@ -232,6 +284,8 @@ class CacheSimulator:
         scenario_name: str,
         workload_profile: str,
         seed: int,
+        duration_seconds: float | None = None,
+        cost_profile: CostProfile | str | None = None,
     ) -> BenchmarkResult:
         """Generate a complete BenchmarkResult for this policy simulation run.
 
@@ -239,6 +293,8 @@ class CacheSimulator:
             scenario_name: Name of the workload scenario.
             workload_profile: Name of the workload profile.
             seed: Scenario generation random seed.
+            duration_seconds: Optional duration in seconds for throughput and cost.
+            cost_profile: Optional CostProfile instance or profile name.
 
         Returns:
             Validated BenchmarkResult model.
@@ -256,9 +312,29 @@ class CacheSimulator:
             workload_profile=workload_profile,
             seed=seed,
             cache_capacity_bytes=self._capacity_bytes,
-            metrics=self.get_metrics(),
+            metrics=self.get_metrics(
+                duration_seconds=duration_seconds,
+                cost_profile=cost_profile,
+            ),
             metadata=metadata,
         )
+
+    def reset_metrics(self) -> None:
+        """Reset metric counters while preserving cache contents and policy state.
+
+        Used to separate warm-up measurements from final benchmark results.
+        """
+        self._total_requests = 0
+        self._cache_hits = 0
+        self._cache_misses = 0
+        self._backend_requests = 0
+        self._backend_requests_prevented = 0
+        self._backend_latency_total_ms = 0.0
+        self._backend_retrieval_cost_total_ms = 0.0
+        self._latencies.clear()
+        self._eviction_count = 0
+        self._peak_cache_usage_bytes = sum(o.size_bytes for o in self._cache.values())
+        self._oversized_requests = 0
 
     def reset(self) -> None:
         """Reset the simulator and policy to initial empty state."""
@@ -269,11 +345,13 @@ class CacheSimulator:
         self._backend_requests = 0
         self._backend_requests_prevented = 0
         self._backend_latency_total_ms = 0.0
+        self._backend_retrieval_cost_total_ms = 0.0
         self._latencies.clear()
         self._eviction_count = 0
         self._peak_cache_usage_bytes = 0
         self._oversized_requests = 0
         self.policy.reset()
+
 
     @staticmethod
     def _validate_inputs(

@@ -203,8 +203,12 @@ class TestPercentileAndMetrics:
         assert metrics.backend_requests == 2
         assert metrics.backend_requests_prevented == 2
         assert metrics.average_latency_ms == 6.0
+        assert metrics.p50_latency_ms == 6.0
+        assert metrics.p95_latency_ms == 11.0
+        assert metrics.p99_latency_ms == 11.0
         assert metrics.eviction_count == 1
         assert metrics.peak_cache_usage_bytes == 2000
+
 
 
 class TestPolicyAdapters:
@@ -215,6 +219,9 @@ class TestPolicyAdapters:
         assert isinstance(get_policy_adapter("lfu"), LFUPolicyAdapter)
         assert isinstance(get_policy_adapter("Gds"), GDSPolicyAdapter)
         assert isinstance(get_policy_adapter("adaptive"), AdaptivePolicyAdapter)
+        assert isinstance(get_policy_adapter("aegis"), AdaptivePolicyAdapter)
+        assert get_policy_adapter("aegis").name == "AEGIS"
+        assert get_policy_adapter("adaptive").name == "ADAPTIVE"
 
         custom = LRUPolicyAdapter()
         assert get_policy_adapter(custom) is custom
@@ -226,15 +233,16 @@ class TestPolicyAdapters:
             get_policy_adapter(123)  # type: ignore[arg-type]
 
     def test_adapters_empty_cache_eviction(self) -> None:
-        for name in ("LRU", "LFU", "GDS", "ADAPTIVE"):
+        for name in ("LRU", "LFU", "GDS", "ADAPTIVE", "AEGIS"):
             adapter = get_policy_adapter(name)
             assert adapter.select_evictions({}, target_capacity_bytes=1000) == []
 
     def test_adapters_reset(self) -> None:
-        for name in ("LRU", "LFU", "GDS", "ADAPTIVE"):
+        for name in ("LRU", "LFU", "GDS", "ADAPTIVE", "AEGIS"):
             adapter = get_policy_adapter(name)
             adapter.reset()
             assert adapter.name == name.upper()
+
 
 
 class TestCacheSimulator:
@@ -299,6 +307,22 @@ class TestCacheSimulator:
         assert sim.total_requests == 0
         assert sim.cache_hits == 0
         assert len(sim.cache) == 0
+
+    def test_simulator_reset_metrics(self, sample_events: list[ScenarioEvent]) -> None:
+        sim = CacheSimulator(capacity_bytes=3000, policy="LRU")
+        for ev in sample_events:
+            sim.process_event(ev)
+
+        assert sim.total_requests == len(sample_events)
+        cached_count = len(sim.cache)
+        assert cached_count > 0
+
+        sim.reset_metrics()
+        assert sim.total_requests == 0
+        assert sim.cache_hits == 0
+        assert sim.cache_misses == 0
+        assert len(sim.cache) == cached_count
+
 
 
 class TestBenchmarkRunner:
@@ -481,8 +505,11 @@ class TestBenchmarkFairnessAndIsolation:
 class TestScenariosAndProfiles:
     """Tests evaluating all Step 11 scenarios and profiles."""
 
-    @pytest.mark.parametrize("scenario_type", ["steady", "spike", "popularity_shift"])
+    @pytest.mark.parametrize(
+        "scenario_type", ["steady", "spike", "popularity_shift", "cost_sensitive"]
+    )
     def test_benchmark_all_scenarios(self, scenario_type: str) -> None:
+
         cfg = ScenarioConfig(
             name=f"test_{scenario_type}",
             scenario_type=scenario_type,
