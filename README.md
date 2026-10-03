@@ -8,6 +8,7 @@ View on MkDocs
 - [Running the Project](docs/running-the-project.md)
 - [Architecture](docs/codebase_architecture.md)
 - [Adaptive Decision Engine](docs/adaptive_decision_engine_specification.md)
+- [Benchmark Comparison](docs/benchmark-comparison.md)
 - [Cache Consistency](docs/cache_consistency_specification.md)
 - [Data Store Testing](docs/data-store-testing.md)
 - [Monitoring](docs/monitoring.md)
@@ -431,7 +432,7 @@ VH26-Satyagrah/
 │   ├── database/                  # SQLAlchemy models, connections, and repositories
 │   ├── metrics/                   # Prometheus metric definitions and scrape sync
 │   ├── telemetry/                 # Sliding-window telemetry collector and state models
-│   ├── workload/                  # Upstream backend adapters (Simulated, Amazon-like)
+│   ├── workload/                  # Upstream backend adapters & synthetic scenarios (cost-sensitive, shift)
 │   └── tests/                     # Unit and integration tests (mirrors backend structure)
 ├── frontend/                      # Streamlit dashboard ("AEGIS")
 │   ├── components/                # Reusable UI cards, charts, badges, and layout
@@ -440,7 +441,9 @@ VH26-Satyagrah/
 │   └── app.py                     # Streamlit application entry point
 ├── contracts/                     # Frozen v1 Pydantic schemas shared across all layers
 │   └── schemas/                   # CacheObject, WorkloadState, SystemState, Decision
-├── benchmark/                     # Offline trace simulator comparing Adaptive vs LRU/LFU/GDS
+├── benchmark/                     # Trace simulator comparing Adaptive vs LRU/LFU/GDS
+│   ├── run_reproducible_benchmark.py # CLI reproducible benchmark suite (seed, warmup, outputs)
+│   └── results/                   # Benchmark outputs (CSV, JSON, Markdown reports)
 ├── demo/                          # Standalone CLI demo of the adaptive pipeline
 ├── k8s/                           # Raw Kubernetes manifests (backend, frontend, redis, db)
 ├── helm/adaptive-cache/           # Parameterized Helm chart for Kubernetes deployment
@@ -483,3 +486,51 @@ VH26-Satyagrah/
 | `GET` | `/adaptive/runtime-decision` | Trigger live evaluation of the adaptive decision engine |
 | `GET` | `/adaptive/decisions` | Retrieve in-memory history of recent adaptive decisions |
 | `POST`| `/adaptive/decision` | Stateless evaluation of a decision given an arbitrary payload |
+
+---
+
+## 15. Empirical Benchmark & Policy Comparison (AEGIS vs. LRU, LFU, GDS)
+
+AEGIS was subjected to rigorous empirical evaluation against three canonical eviction policies—**LRU** (Least Recently Used), **LFU** (Least Frequently Used), and **GDS** (Greedy-Dual-Size)—under identical deterministic parameters (`seed=42`) with strict warm-up separation (1,000 warm-up requests discarded from measurements; 4,000 requests measured per test).
+
+For complete methodological details, statistical formulas, and extended analysis, see the dedicated [Benchmark Comparison Specification](docs/benchmark-comparison.md).
+
+### 15.1. Measured Comparison Table
+
+| Workload | Policy | Requests | Hits | Misses | Hit Ratio | Backend Calls | P50 Latency (ms) | P95 Latency (ms) | P99 Latency (ms) | Evictions | Memory Usage (bytes) | Estimated Cost ($) | Throughput (req/s) |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`steady`** | LRU | 4000 | 2863 | 1137 | 71.57% | 1137 | 1.00 | 6.00 | 6.00 | 1137 | 40,960 | 5,685.00 | 100.03 |
+| **`steady`** | LFU | 4000 | 3279 | 721 | 81.97% | 721 | 1.00 | 6.00 | 6.00 | 721 | 40,960 | 3,605.00 | 100.03 |
+| **`steady`** | GDS | 4000 | 591 | 3409 | 14.77% | 3409 | 6.00 | 6.00 | 6.00 | 3409 | 40,960 | 17,045.00 | 100.03 |
+| **`steady`** | **AEGIS** | **4000** | **3054** | **946** | **76.35%** | **946** | **1.00** | **6.00** | **6.00** | **946** | **40,960** | **4,730.00** | **100.03** |
+| **`popularity_shift`** | LRU | 4000 | 2425 | 1575 | 60.62% | 1575 | 1.00 | 6.00 | 6.00 | 1575 | 40,960 | 7,875.00 | 100.03 |
+| **`popularity_shift`** | LFU | 4000 | 2108 | 1892 | 52.70% | 1892 | 1.00 | 6.00 | 6.00 | 1892 | 40,960 | 9,460.00 | 100.03 |
+| **`popularity_shift`** | GDS | 4000 | 1930 | 2070 | 48.25% | 2070 | 6.00 | 6.00 | 6.00 | 2070 | 40,960 | 10,350.00 | 100.03 |
+| **`popularity_shift`** | **AEGIS** | **4000** | **2764** | **1236** | **69.10%** | **1236** | **1.00** | **6.00** | **6.00** | **1236** | **40,960** | **6,180.00** | **100.03** |
+| **`cost_sensitive`** | LRU | 4000 | 1494 | 2506 | 37.35% | 2506 | 11.03 | 263.97 | 272.76 | 2504 | 57,101 | 271,871.03 | 100.03 |
+| **`cost_sensitive`** | LFU | 4000 | 2537 | 1463 | 63.42% | 1463 | 1.00 | 272.46 | 272.76 | 1464 | 43,869 | 170,615.53 | 100.03 |
+| **`cost_sensitive`** | GDS | 4000 | 1778 | 2222 | 44.45% | 2222 | 10.71 | 262.88 | 271.82 | 2221 | 46,482 | 154,869.71 | 100.03 |
+| **`cost_sensitive`** | **AEGIS** | **4000** | **2477** | **1523** | **61.92%** | **1523** | **1.00** | **262.88** | **272.76** | **1529** | **53,403** | **131,366.47** | **100.03** |
+
+### 15.2. Key Architectural Takeaways
+
+1. **Dynamic Shift Adaptation (+31.1% vs. LFU)**:
+   When active keys shift mid-run, LFU is blinded by accumulated historical frequency and suffers from cache lock-in, falling to 52.70% hit ratio. AEGIS tracks popularity trend velocity and sliding-window recency, rapidly pruning dead warm-up keys to achieve **69.10% hit ratio** (+16.4 percentage points, **+31.12% relative gain**) and cutting backend calls and cache evictions by **34.67%**.
+2. **Economic Utility Optimization (-23.0% Cost & -22.5% Latency vs. LFU)**:
+   Under asymmetric object sizes (1 KB–16 KB) and fetch latencies (10 ms–250 ms), LFU hoards cheap, tiny items to inflate raw hits. AEGIS evaluates **Value Density** ($Score / Size^\alpha$) weighted by origin regeneration penalty, achieving **23.00% lower modeled cost** and **22.47% lower average backend fetch latency** than LFU, and **51.68% lower cost** and **90.93% lower P50 latency** (11.03 ms $\to$ 1.00 ms) than LRU.
+3. **Steady-State Stability (+6.7% vs. LRU)**:
+   In static 80/20 Zipfian distributions, AEGIS maintains 76.35% hit ratio, outperforming LRU (71.57%) by **+6.68%** with **16.80% fewer backend calls**, remaining within 5.6 points of static LFU.
+
+### 15.3. Reproducing the Benchmark
+
+```bash
+# Run deterministic reproducible benchmark (Seed 42, 1000 warmup, 4000 measured)
+PYTHONPATH=. .venv/bin/python benchmark/run_reproducible_benchmark.py \
+  --seed 42 \
+  --warmup-requests 1000 \
+  --measured-requests 4000 \
+  --output-json benchmark/results/reproducible_benchmark_results.json \
+  --output-csv benchmark/results/reproducible_benchmark_results.csv \
+  --output-report benchmark/results/benchmark_report.md
+```
+

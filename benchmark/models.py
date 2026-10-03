@@ -39,6 +39,12 @@ class BenchmarkMetrics(BaseModel):
     average_latency_ms: float = Field(
         ..., ge=0.0, description="Mean simulated request latency in ms"
     )
+    p50_latency_ms: float = Field(
+        default=0.0, ge=0.0, description="50th percentile simulated request latency in ms"
+    )
+    p95_latency_ms: float = Field(
+        default=0.0, ge=0.0, description="95th percentile simulated request latency in ms"
+    )
     p99_latency_ms: float = Field(
         ..., ge=0.0, description="99th percentile simulated request latency in ms"
     )
@@ -51,6 +57,12 @@ class BenchmarkMetrics(BaseModel):
     peak_cache_usage_bytes: int = Field(
         ..., ge=0, description="Maximum cache memory usage in bytes observed"
     )
+    estimated_cost: float = Field(
+        default=0.0, ge=0.0, description="Estimated total operational cost based on project CostModel"
+    )
+    throughput_rps: float = Field(
+        default=0.0, ge=0.0, description="Simulated or measured throughput in requests per second"
+    )
 
     @field_validator(
         "total_requests",
@@ -62,10 +74,14 @@ class BenchmarkMetrics(BaseModel):
         "backend_requests_prevented",
         "backend_latency_total_ms",
         "average_latency_ms",
+        "p50_latency_ms",
+        "p95_latency_ms",
         "p99_latency_ms",
         "eviction_count",
         "cache_capacity_bytes",
         "peak_cache_usage_bytes",
+        "estimated_cost",
+        "throughput_rps",
         mode="before",
     )
     @classmethod
@@ -73,6 +89,7 @@ class BenchmarkMetrics(BaseModel):
         if isinstance(v, bool):
             raise TypeError("Boolean values are not allowed for numeric fields")
         return v
+
 
 
 SUPPORTED_POLICIES: tuple[str, ...] = ("LRU", "LFU", "GDS", "ADAPTIVE")

@@ -67,14 +67,21 @@ class BenchmarkRunner:
         # Compute an adaptive window that fits the actual event time span so that
         # the measurement window rolls at least once mid-scenario and
         # _previous_window_accesses accumulates popularity history.
-        # With the default 60 s window, 100 events at 100 req/s span ~1 s,
-        # so the window never rolls and previous_access_counts stays empty.
         adaptive_window_seconds: float = 1.0
+        span = 0.0
         if len(events) >= 2:
             span = (events[-1].timestamp - events[0].timestamp).total_seconds()
             if span > 0.0:
-                # Set window to half the span: guarantees at least one roll.
                 adaptive_window_seconds = max(0.1, span / 2.0)
+
+        if "adaptive_window_seconds" in self.config.metadata:
+            adaptive_window_seconds = float(
+                self.config.metadata["adaptive_window_seconds"]
+            )
+        elif "window_seconds" in self.config.metadata:
+            adaptive_window_seconds = float(self.config.metadata["window_seconds"])
+
+        cost_profile = self.config.metadata.get("cost_profile")
 
         policy_adapter = get_policy_adapter(
             policy,
@@ -88,6 +95,12 @@ class BenchmarkRunner:
             max_capacity_bytes=self.config.max_capacity_bytes,
         )
 
+        warmup_events = self.config.metadata.get("warmup_events")
+        if warmup_events:
+            for wev in warmup_events:
+                simulator.process_event(wev)
+            simulator.reset_metrics()
+
         for event in events:
             simulator.process_event(event)
 
@@ -95,7 +108,10 @@ class BenchmarkRunner:
             scenario_name=scenario_name,
             workload_profile=workload_profile,
             seed=seed,
+            duration_seconds=span if span > 0.0 else None,
+            cost_profile=cost_profile,
         )
+
 
     def run(
         self,

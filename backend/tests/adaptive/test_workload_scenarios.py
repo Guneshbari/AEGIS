@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from backend.workload.generator import (
     ScenarioGenerator,
+    generate_cost_sensitive_scenario,
     generate_popularity_shift_scenario,
     generate_spike_scenario,
     generate_steady_scenario,
@@ -499,7 +500,7 @@ def test_benchmark_runner_compatibility_and_reuse() -> None:
 
 def test_single_object_and_request() -> None:
     """Minimum configuration with 1 object and 1 request executes without error."""
-    for stype in ("steady", "spike", "popularity_shift"):
+    for stype in ("steady", "spike", "popularity_shift", "cost_sensitive"):
         cfg = ScenarioConfig(
             scenario_type=stype,
             object_count=1,
@@ -530,3 +531,25 @@ def test_generate_workload_convenience_function() -> None:
     cfg = ScenarioConfig(request_count=20)
     events = generate_workload(cfg)
     assert len(events) == 20
+
+
+def test_cost_sensitive_scenario_characteristics() -> None:
+    """Cost-sensitive scenario generates varying object sizes and retrieval costs."""
+    events = generate_cost_sensitive_scenario(
+        seed=42, object_count=20, request_count=100
+    )
+    assert len(events) == 100
+    sizes = {e.object_size_bytes for e in events}
+    costs = {e.retrieval_cost_ms for e in events}
+    assert len(sizes) > 1, "Sizes must vary across objects"
+    assert len(costs) > 1, "Retrieval costs must vary across objects"
+    assert all(s > 0 for s in sizes)
+    assert all(c > 0.0 for c in costs)
+
+
+def test_cost_sensitive_scenario_determinism() -> None:
+    """Same seed generates identical events for cost-sensitive scenario."""
+    e1 = generate_cost_sensitive_scenario(seed=123, object_count=10, request_count=50)
+    e2 = generate_cost_sensitive_scenario(seed=123, object_count=10, request_count=50)
+    assert e1 == e2
+

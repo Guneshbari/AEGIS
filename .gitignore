@@ -53,9 +53,12 @@ coverage.xml
 *.sqlite3
 *.db
 
-# Temporary benchmark / run output artifacts (preserve .gitkeep)
+# Temporary benchmark / run output artifacts (preserve .gitkeep and reproducible results)
 benchmark/results/*
 !benchmark/results/.gitkeep
+!benchmark/results/reproducible_benchmark_results.json
+!benchmark/results/reproducible_benchmark_results.csv
+!benchmark/results/benchmark_report.md
 
 # Node / Web (if applicable)
 node_modules/

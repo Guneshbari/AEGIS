@@ -81,6 +81,8 @@ def compute_benchmark_metrics(
     eviction_count: int,
     cache_capacity_bytes: int,
     peak_cache_usage_bytes: int,
+    estimated_cost: float = 0.0,
+    throughput_rps: float = 0.0,
 ) -> BenchmarkMetrics:
     """Compute and construct a validated BenchmarkMetrics model.
 
@@ -93,6 +95,8 @@ def compute_benchmark_metrics(
         eviction_count: Total evictions performed.
         cache_capacity_bytes: Configured cache capacity in bytes.
         peak_cache_usage_bytes: Maximum cache bytes used.
+        estimated_cost: Modeled total cost from project CostModel.
+        throughput_rps: Requests processed per second.
 
     Returns:
         Frozen BenchmarkMetrics instance.
@@ -101,11 +105,15 @@ def compute_benchmark_metrics(
         hit_ratio = cache_hits / total_requests
         miss_ratio = cache_misses / total_requests
         avg_latency = sum(latencies) / len(latencies) if latencies else 0.0
+        p50_latency = calculate_percentile(latencies, 50.0) if latencies else 0.0
+        p95_latency = calculate_percentile(latencies, 95.0) if latencies else 0.0
         p99_latency = calculate_percentile(latencies, 99.0) if latencies else 0.0
     else:
         hit_ratio = 0.0
         miss_ratio = 0.0
         avg_latency = 0.0
+        p50_latency = 0.0
+        p95_latency = 0.0
         p99_latency = 0.0
 
     return BenchmarkMetrics(
@@ -118,11 +126,16 @@ def compute_benchmark_metrics(
         backend_requests_prevented=cache_hits,
         backend_latency_total_ms=backend_latency_total_ms,
         average_latency_ms=avg_latency,
+        p50_latency_ms=p50_latency,
+        p95_latency_ms=p95_latency,
         p99_latency_ms=p99_latency,
         eviction_count=eviction_count,
         cache_capacity_bytes=cache_capacity_bytes,
         peak_cache_usage_bytes=peak_cache_usage_bytes,
+        estimated_cost=estimated_cost,
+        throughput_rps=throughput_rps,
     )
+
 
 
 def format_summary_table(suite_result: BenchmarkSuiteResult) -> str:

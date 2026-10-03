@@ -184,8 +184,10 @@ class AdaptivePolicyAdapter(BenchmarkPolicy):
         capacity_bytes: int | None = None,
         min_capacity_bytes: int | None = None,
         max_capacity_bytes: int | None = None,
+        name: str = "ADAPTIVE",
     ) -> None:
         """Initialize AdaptivePolicyAdapter with optional DecisionEngine."""
+        self._name = name
         self._decision_engine = decision_engine or DecisionEngine()
         self.window_seconds = window_seconds
         self.cache_capacity_bytes = capacity_bytes
@@ -209,8 +211,9 @@ class AdaptivePolicyAdapter(BenchmarkPolicy):
 
     @property
     def name(self) -> str:
-        """Return policy name 'ADAPTIVE'."""
-        return "ADAPTIVE"
+        """Return policy name ('ADAPTIVE' or 'AEGIS')."""
+        return self._name
+
 
     def configure_capacity(
         self,
@@ -377,8 +380,18 @@ class AdaptivePolicyAdapter(BenchmarkPolicy):
             window_seconds=self.window_seconds,
         )
 
+        # Prepare evaluation objects with windowed access count so that FeatureExtractor
+        # frequency and popularity trend reflect current window activity vs previous window.
+        eval_objects: dict[str, CacheObject] = {}
+        for k, obj in cache.items():
+            win_cnt = self._current_window_accesses.get(k, 0)
+            if win_cnt != obj.access_count:
+                eval_objects[k] = obj.model_copy(update={"access_count": win_cnt})
+            else:
+                eval_objects[k] = obj
+
         decision = self._decision_engine.decide(
-            objects=cache,
+            objects=eval_objects,
             workload=workload,
             system=system,
             min_capacity_bytes=min_cap,
@@ -440,6 +453,7 @@ POLICY_REGISTRY: dict[str, type[BenchmarkPolicy]] = {
     "LFU": LFUPolicyAdapter,
     "GDS": GDSPolicyAdapter,
     "ADAPTIVE": AdaptivePolicyAdapter,
+    "AEGIS": AdaptivePolicyAdapter,
 }
 
 
@@ -453,8 +467,8 @@ def get_policy_adapter(
         policy_or_name: Either a BenchmarkPolicy instance or registered policy name.
         **kwargs: Optional constructor arguments for the policy class.
             Adaptive-only kwargs (``window_seconds``, ``capacity_bytes``,
-            ``min_capacity_bytes``, ``max_capacity_bytes``) are forwarded only
-            to :class:`AdaptivePolicyAdapter` and silently ignored for the
+            ``min_capacity_bytes``, ``max_capacity_bytes``, ``name``) are forwarded
+            only to :class:`AdaptivePolicyAdapter` and silently ignored for the
             baseline adapters (LRU, LFU, GDS) which do not accept them.
 
     Returns:
@@ -466,7 +480,7 @@ def get_policy_adapter(
     """
     # Kwargs that are only accepted by AdaptivePolicyAdapter.
     _ADAPTIVE_ONLY_KWARGS = frozenset(
-        {"window_seconds", "capacity_bytes", "min_capacity_bytes", "max_capacity_bytes"}
+        {"window_seconds", "capacity_bytes", "min_capacity_bytes", "max_capacity_bytes", "name"}
     )
 
     if isinstance(policy_or_name, BenchmarkPolicy):
@@ -476,6 +490,10 @@ def get_policy_adapter(
         policy_cls = POLICY_REGISTRY.get(normalized)
         if policy_cls is not None:
             if policy_cls is AdaptivePolicyAdapter:
+                if normalized == "AEGIS":
+                    kwargs.setdefault("name", "AEGIS")
+                elif normalized == "ADAPTIVE":
+                    kwargs.setdefault("name", "ADAPTIVE")
                 return policy_cls(**kwargs)
             # Strip adaptive-only kwargs before constructing baseline policies.
             filtered = {
@@ -489,3 +507,4 @@ def get_policy_adapter(
     raise TypeError(
         f"Expected str or BenchmarkPolicy, got {type(policy_or_name).__name__}"
     )
+

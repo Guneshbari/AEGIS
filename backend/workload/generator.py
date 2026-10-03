@@ -17,6 +17,7 @@ from backend.workload.scenario import (
 )
 from backend.workload.scenarios import (
     BaseScenario,
+    CostSensitiveScenario,
     PopularityShiftScenario,
     SpikeScenario,
     SteadyScenario,
@@ -26,7 +27,9 @@ SCENARIO_REGISTRY: dict[str, type[BaseScenario]] = {
     "steady": SteadyScenario,
     "spike": SpikeScenario,
     "popularity_shift": PopularityShiftScenario,
+    "cost_sensitive": CostSensitiveScenario,
 }
+
 
 
 class ScenarioGenerator:
@@ -160,6 +163,36 @@ class ScenarioGenerator:
         )
         return cls(cfg)
 
+    @classmethod
+    def cost_sensitive(
+        cls,
+        seed: int = 42,
+        object_count: int = 100,
+        request_count: int = 1000,
+        request_rate: float = 100.0,
+        hot_set_size: int = 10,
+        profile: WorkloadProfile | str = PRODUCT_CATALOG_PROFILE,
+        start_time: datetime | None = None,
+        key_prefix: str = "obj",
+        extra_params: dict[str, Any] | None = None,
+    ) -> ScenarioGenerator:
+        """Helper constructor for a cost-sensitive workload scenario generator."""
+        cfg = ScenarioConfig(
+            name="cost_sensitive",
+            scenario_type="cost_sensitive",
+            seed=seed,
+            object_count=object_count,
+            request_count=request_count,
+            request_rate=request_rate,
+            hot_set_size=hot_set_size,
+            profile=profile,
+            start_time=start_time,
+            key_prefix=key_prefix,
+            extra_params=extra_params,
+        )
+        return cls(cfg)
+
+
 
 def generate_workload(config: ScenarioConfig) -> list[ScenarioEvent]:
     """Generate a workload event stream from configuration."""
@@ -244,3 +277,30 @@ def generate_popularity_shift_scenario(
         extra_params=extra_params,
     )
     return generator.generate()
+
+
+def generate_cost_sensitive_scenario(
+    seed: int = 42,
+    object_count: int = 100,
+    request_count: int = 1000,
+    request_rate: float = 100.0,
+    hot_set_size: int = 10,
+    profile: WorkloadProfile | str = PRODUCT_CATALOG_PROFILE,
+    start_time: datetime | None = None,
+    key_prefix: str = "obj",
+    extra_params: dict[str, Any] | None = None,
+) -> list[ScenarioEvent]:
+    """Convenience function to generate a cost-sensitive event sequence."""
+    generator = ScenarioGenerator.cost_sensitive(
+        seed=seed,
+        object_count=object_count,
+        request_count=request_count,
+        request_rate=request_rate,
+        hot_set_size=hot_set_size,
+        profile=profile,
+        start_time=start_time,
+        key_prefix=key_prefix,
+        extra_params=extra_params,
+    )
+    return generator.generate()
+
